@@ -10,25 +10,42 @@ use CWP\ADS\AbstractApi\Exception\ServerException;
 use Http\Client\Common\PluginClient;
 use GuzzleHttp\Psr7\Request;
 
+use JsonMapper;
+
 class Api {
 
     /**
      * Configuration settings
      * @var array
      */
-    protected $_config;
+    protected $config;
 
     /**
      * Configured API Client
      * @var PluginClient
      */
-    protected $_client;
+    protected $client;
 
     /**
      * Factory for creating objects from responses
      * @var FactoryInterface
      */
-    protected $_factory = null;
+    protected $factory = null;
+
+    /**
+     * Mapper to return objects from API responses
+     * @var object
+     */
+    protected $mapper;
+
+    /**
+     * Middlewares
+     * @var array
+     */
+    protected $middleware = array(
+        'request' => null,
+        'response' => null
+    );
 
     /**
      * Create a new API handle
@@ -37,8 +54,8 @@ class Api {
      * @param Factory $factory  Factory for creating objects from responses
      */
     public function __construct(array $config, $client) {
-        $this->_config = $config;
-        $this->_client = $client;
+        $this->config = $config;
+        $this->client = $client;
     }
 
     /**
@@ -46,7 +63,7 @@ class Api {
      * @param FactoryInterface $factory
      */
     public function registerFactory(FactoryInterface $factory) {
-        $this->_factory = $factory;
+        $this->factory = $factory;
     }
 
     /**
@@ -65,6 +82,7 @@ class Api {
      * @param  string $method
      * @param  string $endpoint
      * @param  array  $params
+     * @todo Validate request and response results
      * @return mixed
      */
     public function request($method, $endpoint, array $params = array(), $returnRaw = false) {
@@ -75,13 +93,56 @@ class Api {
         }
 
         $request = new Request($method, $url);
-        $response = $this->sendRequest($request);
-
-        if(!is_null($this->getFactory()) && !$returnRaw) {
-            return $this->getFactory()->createObjectFromResponse($response, $request, $this);
-        } else {
-            return $response;
+        if(!is_null($this->getMiddleware('request'))) {
+            $request = call_user_func($this->getMiddleware('request'), $request);
         }
+
+        $response = $this->sendRequest($request);
+        if(!is_null($this->getMiddleware('response'))) {
+            $response = call_user_func($this->getMiddleware('response'), $request, $response);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Add a middleware to run against requests
+     * @param $middleware
+     */
+    public function addRequestMiddleware($middleware) {
+        if(is_callable($middelware)) {
+            $this->middleware['request'] = $middleware;
+        }
+        throw new AbstractApiSDKException("Middleware must be callable");
+    }
+
+    /**
+     * Add a middleware to run against responses
+     * @param $middleware
+     */
+    public function addResponseMiddleware($middleware) {
+        if(is_callable($middelware)) {
+            $this->middleware['response'] = $middleware;
+        }
+        throw new AbstractApiSDKException("Middleware must be callable");
+    }
+
+    /**
+     * Get all registered middleware
+     * @param  string $type 'request|response'
+     * @return callable
+     */
+    public function getMiddleware($type) {
+        return $this->middleware[$type];
+    }
+
+    /**
+     * Set object mapper for API responses
+     * @param  JsonMapper $mapper
+     * @return
+     */
+    public function registerObjectMapper(JsonMapper $mapper) {
+        $this->mapper = $mapper;
     }
 
     /**
@@ -103,10 +164,10 @@ class Api {
     }
 
     public function getClient() {
-        return $this->_client;
+        return $this->client;
     }
 
     public function getFactory() {
-        return $this->_factory;
+        return $this->factory;
     }
 }
